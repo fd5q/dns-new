@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>DNSSettings</key>
+			<dict>
+				<key>DNSProtocol</key>
+				<string>HTTPS</string>
+				<key>ServerURL</key>
+				<string>https://cloudflare-dns.com/dns-query</string>
+				<key>ServerAddresses</key>
+				<array>
+					<string>1.1.1.1</string>
+					<string>1.0.0.1</string>
+				</array>
+			</dict>
+			<key>PayloadDescription</key>
+			<string>Encrypted DNS using Cloudflare DNS over HTTPS. This profile configures DNS only; it does not detect spyware.</string>
+			<key>PayloadDisplayName</key>
+			<string>Cloudflare Encrypted DNS</string>
+			<key>PayloadIdentifier</key>
+			<string>com.personal.basicdns.dns.a1441817-1b70-42f5-9e04-525a8689c88e</string>
+			<key>PayloadType</key>
+			<string>com.apple.dnsSettings.managed</string>
+			<key>PayloadUUID</key>
+			<string>A1441817-1B70-42F5-9E04-525A8689C88E</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+		</dict>
+	</array>
+	<key>PayloadDescription</key>
+	<string>DNS-only profile for encrypted DNS on a compatible iPad. It does not include a content filter or spyware monitoring.</string>
+	<key>PayloadDisplayName</key>
+	<string>Basic iPad DNS Protection</string>
+	<key>PayloadIdentifier</key>
+	<string>com.personal.basicdns.profile.d64aee39-656e-4963-bc7d-2c6480e7614d</string>
+	<key>PayloadOrganization</key>
+	<string>Personal DNS Setup</string>
+	<key>PayloadRemovalDisallowed</key>
+	<false/>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>D64AEE39-656E-4963-BC7D-2C6480E7614D</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>
