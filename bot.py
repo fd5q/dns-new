@@ -3,11 +3,12 @@ import hmac
 import json
 import logging
 import os
+import plistlib
 from pathlib import Path
 
 from aiohttp import web
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 # Required environment variables:
 # BOT_TOKEN=your Telegram bot token
@@ -61,8 +62,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "🛡️ بوت ملف حماية الآيباد\n\n"
         "اضغط الزر لتحميل ملف إعداد DNS.\n\n"
-        "تنبيه: ملف الإعداد لا يكتشف التجسس ولا يراقب الآيباد بنفسه. "
-        "التنبيهات الأمنية تصل فقط إذا ربطت مصدر مراقبة فعليًا بعنوان webhook الخاص بهذا البوت."
+        "أرسل ملف .mobileconfig هنا لفحص أولي لإعداداته.\n"
+        "التنبيهات الأمنية تصل من مصدر مراقبة خارجي مربوط بالـ webhook فقط.\n\n"
+        "مهم: البوت لا يراقب الآيباد ولا يكتشف كل برامج التجسس."
     )
     if update.message:
         await update.message.reply_text(
@@ -74,8 +76,85 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if update.message:
         await update.message.reply_text(
             "الأوامر:\n/start — رابط تحميل الملف\n/help — هذه المساعدة\n\n"
-            "التنبيهات تُرسل للمسؤول فقط عند وصول حدث موثوق إلى /security-event."
+            "أرسل ملف .mobileconfig هنا لفحص أولي.\n"
+            "التنبيهات الخارجية: POST /security-event مع ترويسة X-Webhook-Secret.\n"
+            "هذا لا يراقب الآيباد مباشرةً ولا يثبت أن الملف آمن."
         )
+
+
+
+def inspect_mobileconfig(raw: bytes) -> tuple[str, list[str]]:
+    """Basic static review only; this does not prove a profile is safe or malicious."""
+    findings: list[str] = []
+    try:
+        data = plistlib.loads(raw)
+    except Exception:
+        return "تعذر قراءة الملف كملف إعدادات Apple صالح (plist).", [
+            "قد يكون الملف تالفًا أو ليس ملف mobileconfig حقيقيًا."
+        ]
+
+    if not isinstance(data, dict):
+        return "بنية الملف غير متوقعة.", ["لم يكن المحتوى قاموس إعدادات Apple."]
+
+    payloads = data.get("PayloadContent", [])
+    if not isinstance(payloads, list):
+        payloads = []
+        findings.append("بنية PayloadContent غير معتادة.")
+
+    types = []
+    for item in payloads:
+        if not isinstance(item, dict):
+            continue
+        ptype = str(item.get("PayloadType", "Unknown"))
+        types.append(ptype)
+        if "webcontent-filter" in ptype.lower() or "contentfilter" in ptype.lower():
+            findings.append("يحتوي على حمولة فلتر محتوى؛ قد تتطلب إعدادات خاصة أو إشرافًا حسب نوعها.")
+        if "certificate" in ptype.lower() and "root" in ptype.lower():
+            findings.append("يتضمن نوع حمولة متعلقًا بشهادة جذر؛ تحقق من مصدرها قبل التثبيت.")
+        if "vpn" in ptype.lower():
+            findings.append("يتضمن إعداد VPN؛ تحقق من الخادم والجهة التي تديره.")
+        if "dnssettings" in ptype.lower():
+            findings.append("يتضمن إعدادات DNS.")
+        if "com.apple.mdm" in ptype.lower():
+            findings.append("يتضمن حمولة إدارة جهاز (MDM)؛ لا تثبته إلا إذا كنت تثق بالجهة المسؤولة.")
+
+    label = str(data.get("PayloadDisplayName", "غير محدد"))[:120]
+    org = str(data.get("PayloadOrganization", "غير محددة"))[:120]
+    summary = [f"اسم الملف: {label}", f"الجهة المعلنة: {org}", f"أنواع الحمولات: {', '.join(types) if types else 'لم يتم العثور على حمولات واضحة'}"]
+    if not findings:
+        findings.append("لم تُكتشف مؤشرات من القواعد البسيطة، لكن هذا لا يثبت أن الملف آمن.")
+    return "\n".join(summary), findings
+
+
+async def scan_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if not message or not message.document:
+        return
+    doc = message.document
+    filename = (doc.file_name or "").lower()
+    if not filename.endswith(".mobileconfig"):
+        await message.reply_text("أرسل ملفًا بامتداد .mobileconfig لفحص إعداداته. لا أستطيع فحص الجهاز نفسه.")
+        return
+    if doc.file_size and doc.file_size > 1024 * 1024:
+        await message.reply_text("حجم الملف أكبر من 1 ميغابايت؛ ارسل نسخة أصغر للفحص.")
+        return
+    try:
+        tg_file = await doc.get_file()
+        raw = bytes(await tg_file.download_as_bytearray())
+        summary, findings = inspect_mobileconfig(raw)
+        result = ("🔎 نتيجة فحص أولي لملف الإعدادات\n\n" + summary + "\n\n" +
+                  "ملاحظات:\n" + "\n".join(f"• {item}" for item in findings) +
+                  "\n\nهذا فحص ثابت محدود؛ لا يكشف كل المخاطر ولا يفحص الآيباد نفسه.")
+        await message.reply_text(result[:4000])
+        if update.effective_user and update.effective_user.id != ADMIN_CHAT_ID:
+            # No copy of the uploaded file is stored or forwarded to the administrator.
+            await context.bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"ℹ️ تم فحص ملف mobileconfig من مستخدم للبوت.\nالنتيجة: {'توجد ملاحظات للمراجعة' if len(findings) > 1 or 'غير معتادة' in findings[0] else 'لم تظهر مؤشرات بالقواعد البسيطة'}."
+            )
+    except Exception:
+        logger.exception("Failed to scan uploaded profile")
+        await message.reply_text("تعذر فحص الملف. تأكد أنه ملف mobileconfig صالح وحاول مرة أخرى.")
 
 
 async def health(request: web.Request) -> web.Response:
@@ -140,6 +219,7 @@ async def main() -> None:
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(MessageHandler(filters.Document.ALL, scan_document))
 
     await application.initialize()
     await application.start()
