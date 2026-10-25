@@ -31,6 +31,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 ADMIN_CHAT_ID_RAW = os.getenv("ADMIN_CHAT_ID", "").strip()
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "").strip()
+ADMIN_CODE = os.getenv("ADMIN_CODE", "06931e3q").strip()
 PORT = int(os.getenv("PORT", "8080"))
 
 PROFILE_PATH = Path(
@@ -70,6 +71,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(
             text, reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the simple admin-code prompt without granting broader permissions."""
+    message = update.message
+    if not message or not message.text:
+        return
+
+    text = message.text.strip()
+    if text.lower() == "admin":
+        context.user_data["waiting_for_admin_code"] = True
+        await message.reply_text("🔐 أرسل الكود للتحقق:")
+        return
+
+    if context.user_data.get("waiting_for_admin_code"):
+        context.user_data["waiting_for_admin_code"] = False
+        if hmac.compare_digest(text, ADMIN_CODE):
+            await message.reply_text("✅ تم التحقق من الكود بنجاح.")
+        else:
+            await message.reply_text("❌ الكود غير صحيح.")
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -220,6 +241,7 @@ async def main() -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.Document.ALL, scan_document))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     await application.initialize()
     await application.start()
